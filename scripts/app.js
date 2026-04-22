@@ -1,215 +1,208 @@
-// Hoofs Terminal - static version
+// Rebuilt Hoofs Terminal (doubles-focused, correct sequencing)
 
-function uid(prefix = 'id') {
-  return prefix + '_' + Math.random().toString(36).slice(2, 9)
+const state = {
+  selections: [],
+  paths: [],
+  events: [],
+  stakePerCombo: 10
 }
 
-function sortSelections(selections) {
-  return [...selections].sort((a, b) => new Date(a.raceTime) - new Date(b.raceTime))
+function uid() {
+  return Math.random().toString(36).slice(2, 9)
 }
 
-function combinations(arr, k) {
-  if (k === 0) return [[]]
-  if (arr.length < k) return []
-  const [first, ...rest] = arr
+function demo() {
+  const base = new Date()
   return [
-    ...combinations(rest, k - 1).map(c => [first, ...c]),
-    ...combinations(rest, k)
+    { id: 'a', name: 'Sea Mirage', time: new Date(base.getTime() + 0).toISOString(), status: 'pending' },
+    { id: 'b', name: 'Siouxperb', time: new Date(base.getTime() + 1800000).toISOString(), status: 'pending' },
+    { id: 'c', name: 'Lady Youzman', time: new Date(base.getTime() + 3600000).toISOString(), status: 'pending' },
+    { id: 'd', name: 'Brilliant Star', time: new Date(base.getTime() + 5400000).toISOString(), status: 'pending' }
   ]
 }
 
-function generatePaths(selections, fold, stakePerCombo) {
-  const sorted = sortSelections(selections)
-  const combos = combinations(sorted, fold)
-
-  return combos.map((combo, i) => ({
-    id: 'path_' + i,
-    selectionIds: combo.map(s => s.id),
-    originalStake: stakePerCombo,
-    currentValue: stakePerCombo,
-    status: 'live',
-    currentLegIndex: 0,
-    completedLegs: [],
-    nextSelectionId: combo[0].id
-  }))
+function sortSel() {
+  return [...state.selections].sort((a,b)=> new Date(a.time)-new Date(b.time))
 }
 
-function getActiveSelectionId(paths, selections) {
-  const live = paths.filter(p => p.status === 'live')
-  if (!live.length) return null
-
-  const nextIds = [...new Set(live.map(p => p.nextSelectionId))]
-
-  const ordered = sortSelections(selections)
-  for (const sel of ordered) {
-    if (nextIds.includes(sel.id)) return sel.id
+function buildPaths() {
+  const s = sortSel()
+  const paths = []
+  for (let i=0;i<s.length;i++) {
+    for (let j=i+1;j<s.length;j++) {
+      paths.push({
+        id: uid(),
+        legs: [s[i].id, s[j].id],
+        values: [state.stakePerCombo, null],
+        status: 'live',
+        nextIndex: 0
+      })
+    }
   }
-
-  return nextIds[0] || null
+  state.paths = paths
 }
 
-function calculateRequiredStake(paths, selectionId) {
-  return paths
-    .filter(p => p.status === 'live' && p.nextSelectionId === selectionId)
-    .reduce((sum, p) => sum + p.currentValue, 0)
+function getActive() {
+  const live = state.paths.filter(p=>p.status==='live')
+  if (!live.length) return null
+  const nextIds = [...new Set(live.map(p=>p.legs[p.nextIndex]))]
+  for (const s of sortSel()) {
+    if (nextIds.includes(s.id)) return s.id
+  }
+  return null
 }
 
-function settleSelection(paths, selectionId, outcome, odds) {
-  return paths.map(path => {
-    if (path.status !== 'live') return path
-    if (path.nextSelectionId !== selectionId) return path
+function requiredStake(selId) {
+  return state.paths
+    .filter(p=>p.status==='live' && p.legs[p.nextIndex]===selId)
+    .reduce((a,p)=>a + (p.values[p.nextIndex]||0),0)
+}
 
-    if (outcome === 'fail') {
-      return { ...path, status: 'dead' }
+function settle(selId, success, odds, stakePlaced) {
+  state.events.push({selId, success, odds, stakePlaced})
+
+  state.paths = state.paths.map(p=>{
+    if (p.status!=='live') return p
+    if (p.legs[p.nextIndex]!==selId) return p
+
+    if (!success) return {...p, status:'dead'}
+
+    const stake = p.values[p.nextIndex]
+    const nextVal = stake * odds
+
+    if (p.nextIndex===1) {
+      return {...p, status:'settled', values:[p.values[0], nextVal]}
     }
 
-    const nextValue = path.currentValue * odds
-    const nextIndex = path.currentLegIndex + 1
-    const isFinal = nextIndex >= path.selectionIds.length
-
     return {
-      ...path,
-      currentValue: nextValue,
-      currentLegIndex: nextIndex,
-      status: isFinal ? 'settled' : 'live',
-      nextSelectionId: path.selectionIds[nextIndex]
+      ...p,
+      nextIndex:1,
+      values:[p.values[0], nextVal]
     }
   })
 }
 
-function calculatePnL(paths) {
-  const original = paths.reduce((s, p) => s + p.originalStake, 0)
-  const settled = paths.filter(p => p.status === 'settled')
-  const live = paths.filter(p => p.status === 'live')
+function calcPnL() {
+  const planned = state.paths.length * state.stakePerCombo
+  const placed = state.events.reduce((a,e)=>a + (e.stakePlaced||0),0)
 
-  const returns = settled.reduce((s, p) => s + p.currentValue, 0)
-  const realised = returns - original
-  const unrealised = live.reduce((s, p) => s + p.currentValue, 0)
+  const returns = state.paths
+    .filter(p=>p.status==='settled')
+    .reduce((a,p)=>a + p.values[1],0)
+
+  const liveExposure = state.paths
+    .filter(p=>p.status==='live')
+    .reduce((a,p)=>a + (p.values[p.nextIndex]||0),0)
+
+  const realised = returns - placed
+  const unrealised = liveExposure
 
   return {
-    original,
+    planned,
+    placed,
+    remaining: planned - placed,
+    exposure: liveExposure,
+    returns,
     realised,
     unrealised,
-    total: realised + unrealised
+    total: realised + unrealised,
+    best: returns + unrealised - placed,
+    worst: -placed
   }
-}
-
-function demoSelections() {
-  const base = new Date()
-  return [
-    { id: 's1', runnerName: 'Sea Mirage', raceTime: new Date(base.getTime() + 0 * 30 * 60000).toISOString(), status: 'pending' },
-    { id: 's2', runnerName: 'Siouxperb', raceTime: new Date(base.getTime() + 1 * 30 * 60000).toISOString(), status: 'pending' },
-    { id: 's3', runnerName: 'Lady Youzman', raceTime: new Date(base.getTime() + 2 * 30 * 60000).toISOString(), status: 'pending' },
-    { id: 's4', runnerName: 'Brilliant Star', raceTime: new Date(base.getTime() + 3 * 30 * 60000).toISOString(), status: 'pending' },
-    { id: 's5', runnerName: 'Space Bear', raceTime: new Date(base.getTime() + 4 * 30 * 60000).toISOString(), status: 'pending' }
-  ]
-}
-
-const state = {
-  selections: demoSelections(),
-  fold: 2,
-  stakePerCombo: 10,
-  paths: [],
-  log: []
-}
-
-state.paths = generatePaths(state.selections, state.fold, state.stakePerCombo)
-
-function addLog(message) {
-  state.log.unshift({ id: uid('log'), message, time: new Date().toLocaleTimeString() })
 }
 
 function render() {
-  const activeId = getActiveSelectionId(state.paths, state.selections)
-  const activeSel = state.selections.find(s => s.id === activeId)
-  const requiredStake = activeId ? calculateRequiredStake(state.paths, activeId) : 0
-  const pnl = calculatePnL(state.paths)
+  const active = getActive()
+  const pnl = calcPnL()
 
   document.getElementById('metric-selections').textContent = state.selections.length
   document.getElementById('metric-combos').textContent = state.paths.length
-  document.getElementById('metric-original').textContent = pnl.original.toFixed(2)
-  document.getElementById('metric-total').textContent = pnl.total.toFixed(2)
-  document.getElementById('metric-live').textContent = state.paths.filter(p => p.status === 'live').length
-  document.getElementById('metric-dead').textContent = state.paths.filter(p => p.status === 'dead').length
+  document.getElementById('metric-planned').textContent = pnl.planned.toFixed(2)
+  document.getElementById('metric-placed').textContent = pnl.placed.toFixed(2)
+  document.getElementById('metric-live-paths').textContent = state.paths.filter(p=>p.status==='live').length
+  document.getElementById('metric-total-pnl').textContent = pnl.total.toFixed(2)
 
-  const queue = document.getElementById('queue')
-  queue.innerHTML = ''
-  sortSelections(state.selections).forEach(sel => {
-    const el = document.createElement('div')
-    el.className = 'queue-item' + (sel.id === activeId ? ' active' : '')
-    el.innerHTML = `<strong>${sel.runnerName}</strong><div class="queue-meta">${new Date(sel.raceTime).toLocaleTimeString()}</div>`
-    queue.appendChild(el)
+  const q = document.getElementById('queue')
+  q.innerHTML=''
+  sortSel().forEach(s=>{
+    const el=document.createElement('div')
+    el.className='queue-item'+(s.id===active?' active':'')
+    el.innerHTML=`<strong>${s.name}</strong><div class="queue-meta">${new Date(s.time).toLocaleTimeString()}</div>`
+    q.appendChild(el)
   })
 
-  document.getElementById('active-runner').textContent = activeSel ? activeSel.runnerName : '—'
-  document.getElementById('active-time').textContent = activeSel ? new Date(activeSel.raceTime).toLocaleTimeString() : ''
-  document.getElementById('required-stake').textContent = requiredStake.toFixed(2)
-  document.getElementById('paths-count').textContent = state.paths.filter(p => p.status === 'live' && p.nextSelectionId === activeId).length
+  const activeSel = state.selections.find(s=>s.id===active)
+  document.getElementById('active-runner').textContent = activeSel?activeSel.name:'—'
+  document.getElementById('active-meta').textContent = activeSel?new Date(activeSel.time).toLocaleTimeString():''
 
-  document.getElementById('pnl-original').textContent = pnl.original.toFixed(2)
+  const stake = active?requiredStake(active):0
+  document.getElementById('required-stake').textContent = stake.toFixed(2)
+  document.getElementById('represented-paths').textContent = `${state.paths.filter(p=>p.status==='live'&&p.legs[p.nextIndex]===active).length} paths`
+
+  document.getElementById('impact-paths').textContent = state.paths.filter(p=>p.status==='live'&&p.legs[p.nextIndex]===active).length
+  document.getElementById('impact-value').textContent = stake.toFixed(2)
+  document.getElementById('impact-next').textContent = (stake*Number(document.getElementById('input-odds').value||1)).toFixed(2)
+
+  document.getElementById('pnl-planned').textContent = pnl.planned.toFixed(2)
+  document.getElementById('pnl-placed').textContent = pnl.placed.toFixed(2)
+  document.getElementById('pnl-remaining').textContent = pnl.remaining.toFixed(2)
+  document.getElementById('pnl-exposure').textContent = pnl.exposure.toFixed(2)
+  document.getElementById('pnl-returns').textContent = pnl.returns.toFixed(2)
   document.getElementById('pnl-realised').textContent = pnl.realised.toFixed(2)
   document.getElementById('pnl-unrealised').textContent = pnl.unrealised.toFixed(2)
   document.getElementById('pnl-total').textContent = pnl.total.toFixed(2)
+  document.getElementById('pnl-best').textContent = pnl.best.toFixed(2)
+  document.getElementById('pnl-worst').textContent = pnl.worst.toFixed(2)
 
-  const logEl = document.getElementById('log')
-  logEl.innerHTML = ''
-  state.log.slice(0, 20).forEach(item => {
-    const el = document.createElement('div')
-    el.className = 'log-item'
-    el.textContent = `[${item.time}] ${item.message}`
-    logEl.appendChild(el)
-  })
-
-  const tableBody = document.getElementById('paths-table')
-  tableBody.innerHTML = ''
-  state.paths.forEach(p => {
-    const row = document.createElement('tr')
-    row.innerHTML = `
+  const tbody=document.getElementById('paths-table')
+  tbody.innerHTML=''
+  state.paths.forEach(p=>{
+    const row=document.createElement('tr')
+    row.innerHTML=`
       <td>${p.id}</td>
-      <td>${p.selectionIds.join(', ')}</td>
+      <td>${p.legs.join(' → ')}</td>
       <td class="status-${p.status}">${p.status}</td>
-      <td>${p.currentLegIndex}/${p.selectionIds.length}</td>
-      <td>${p.originalStake.toFixed(2)}</td>
-      <td>${p.currentValue.toFixed(2)}</td>
-      <td>${p.nextSelectionId || '-'}</td>
+      <td>${p.nextIndex}/${p.legs.length}</td>
+      <td>${p.values[0].toFixed(2)}</td>
+      <td>${(p.values[p.nextIndex]||p.values[1]||0).toFixed(2)}</td>
+      <td>${p.legs[p.nextIndex]||'-'}</td>
+      <td>${p.values[0].toFixed(2)}</td>
+      <td>${p.values[1]?p.values[1].toFixed(2):'-'}</td>
     `
-    tableBody.appendChild(row)
+    tbody.appendChild(row)
   })
 }
 
-function bindActions() {
-  const oddsInput = document.getElementById('input-odds')
-
-  document.getElementById('btn-win').onclick = () => {
-    const activeId = getActiveSelectionId(state.paths, state.selections)
-    if (!activeId) return
-    const odds = Number(oddsInput.value) || 1
-    state.paths = settleSelection(state.paths, activeId, 'success', odds)
-    addLog(`WIN ${activeId} @ ${odds}`)
+function bind() {
+  document.getElementById('btn-success').onclick=()=>{
+    const active=getActive()
+    if(!active) return
+    const odds=Number(document.getElementById('input-odds').value||1)
+    const stake=requiredStake(active)
+    settle(active,true,odds,stake)
     render()
   }
 
-  document.getElementById('btn-loss').onclick = () => {
-    const activeId = getActiveSelectionId(state.paths, state.selections)
-    if (!activeId) return
-    state.paths = settleSelection(state.paths, activeId, 'fail', 0)
-    addLog(`LOSS ${activeId}`)
+  document.getElementById('btn-fail').onclick=()=>{
+    const active=getActive()
+    if(!active) return
+    const stake=requiredStake(active)
+    settle(active,false,0,stake)
     render()
   }
 
-  document.getElementById('btn-reset').onclick = () => {
-    state.selections = demoSelections()
-    state.paths = generatePaths(state.selections, state.fold, state.stakePerCombo)
-    state.log = []
-    addLog('Session reset')
-    render()
-  }
+  document.getElementById('btn-reset').onclick=init
+  document.getElementById('btn-demo').onclick=init
 }
 
 function init() {
-  bindActions()
-  addLog('Demo session loaded')
+  state.selections = demo()
+  buildPaths()
+  state.events=[]
   render()
 }
 
-window.addEventListener('DOMContentLoaded', init)
+window.onload=()=>{
+  bind()
+  init()
+}
