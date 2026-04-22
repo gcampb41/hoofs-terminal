@@ -1,12 +1,103 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hoofs Terminal</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hoofs Terminal</title>
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <div class="app">
+
+    <header class="topbar">
+      <div class="title-wrap">
+        <h1>Hoofs Terminal</h1>
+        <p class="subtitle">Multi-leg execution terminal</p>
+      </div>
+      <div class="actions">
+        <button id="btn-reset" class="btn btn-danger">Reset</button>
+      </div>
+    </header>
+
+    <section class="summary-bar">
+      <div class="card"><div class="metric-label">Selections</div><div id="metric-selections" class="metric-value"></div></div>
+      <div class="card"><div class="metric-label">Combinations</div><div id="metric-combos" class="metric-value"></div></div>
+      <div class="card"><div class="metric-label">Original Stake</div><div id="metric-original" class="metric-value"></div></div>
+      <div class="card"><div class="metric-label">Total P&L</div><div id="metric-total" class="metric-value"></div></div>
+      <div class="card"><div class="metric-label">Live Paths</div><div id="metric-live" class="metric-value"></div></div>
+      <div class="card"><div class="metric-label">Dead Paths</div><div id="metric-dead" class="metric-value"></div></div>
+    </section>
+
+    <main class="layout">
+
+      <aside class="panel">
+        <h2 class="panel-title">Race Queue</h2>
+        <div id="queue" class="queue-list"></div>
+      </aside>
+
+      <section class="panel">
+        <h2 class="panel-title">Live Execution</h2>
+        <div class="execution-grid">
+          <div class="card">
+            <div class="metric-label">Active Runner</div>
+            <div id="active-runner" class="runner-name"></div>
+            <div id="active-time" class="queue-meta"></div>
+          </div>
+          <div class="card">
+            <div class="metric-label">Required Stake</div>
+            <div id="required-stake" class="metric-value"></div>
+            <div class="queue-meta">Paths: <span id="paths-count"></span></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="field">
+            <label>Matched Odds</label>
+            <input id="input-odds" type="number" value="2" step="0.01" />
+          </div>
+          <div style="margin-top:12px; display:flex; gap:10px">
+            <button id="btn-win" class="btn btn-success">Mark Win</button>
+            <button id="btn-loss" class="btn btn-danger">Mark Loss</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <h2 class="panel-title">P&L</h2>
+        <div class="kpi-list">
+          <div class="kpi-row"><span>Original</span><span id="pnl-original"></span></div>
+          <div class="kpi-row"><span>Realised</span><span id="pnl-realised"></span></div>
+          <div class="kpi-row"><span>Unrealised</span><span id="pnl-unrealised"></span></div>
+          <div class="kpi-row"><span>Total</span><span id="pnl-total"></span></div>
+        </div>
+
+        <h3 class="panel-title" style="margin-top:16px">Event Log</h3>
+        <div id="log" class="log-list"></div>
+      </aside>
+
+    </main>
+
+    <section class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Path</th>
+              <th>Status</th>
+              <th>Leg</th>
+              <th>Original</th>
+              <th>Current</th>
+              <th>Next</th>
+            </tr>
+          </thead>
+          <tbody id="paths-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="scripts/app.js"></script>
+</body>
 </html>
